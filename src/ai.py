@@ -25,10 +25,7 @@ def complete(prompt, temperature=0.0):
 		n = 1,
 	)
 	resp = openai.Completion.create(**kwargs)
-	out = {}
-	out['text']  = resp['choices'][0]['text']
-	out['usage'] = resp['usage']
-	return out
+	return {'text': resp['choices'][0]['text'], 'usage': resp['usage']}
 
 
 def embedding(text):
@@ -36,8 +33,8 @@ def embedding(text):
 		input=text,
 		model="text-embedding-ada-002",
 	)
-	out = {}
-	out['vector'] = list(resp['data'][0]['embedding'][:BUTCHER_EMBEDDINGS])
-	out['usage']  = dict(resp['usage'])
-	return out
+	return {
+		'vector': list(resp['data'][0]['embedding'][:BUTCHER_EMBEDDINGS]),
+		'usage': dict(resp['usage']),
+	}
 
