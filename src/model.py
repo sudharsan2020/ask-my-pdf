@@ -41,18 +41,18 @@ def index_file(f, fix_text=False, frag_size=0, pg=None):
 	vectors = get_vectors(texts, pg)
 	summary_prompt = f"{texts[0]}\n\nDescribe the document from which the fragment is extracted. Omit any details.\n\n" # TODO: move to prompts.py
 	summary = ai.complete(summary_prompt)
-	out = {}
-	out['size']    = len(texts)
-	out['texts']   = texts
-	out['pages']   = pages
-	out['vectors'] = vectors
-	out['summary'] = summary['text']
-	return out
+	return {
+		'size': len(texts),
+		'texts': texts,
+		'pages': pages,
+		'vectors': vectors,
+		'summary': summary['text'],
+	}
 
 def split_pages_into_fragments(pages, frag_size):
 	"split pages (list of texts) into smaller fragments (list of texts)"
 	page_offset = [0]
-	for p,page in enumerate(pages):
+	for page in pages:
 		page_offset += [page_offset[-1]+len(page)+1]
 	# TODO: del page_offset[-1] ???
 	if frag_size:
@@ -63,30 +63,27 @@ def split_pages_into_fragments(pages, frag_size):
 
 def text_to_fragments(text, size, page_offset):
 	"split single text into smaller fragments (list of texts)"
-	if size and len(text)>size:
-		out = []
-		pos = 0
-		page = 1
-		p_off = page_offset.copy()[1:]
-		eos = find_eos(text)
-		if len(text) not in eos:
-			eos += [len(text)]
-		for i in range(len(eos)):
-			if eos[i]-pos>size:
-				text_fragment = f'PAGE({page}):\n'+text[pos:eos[i]]
-				out += [text_fragment]
-				pos = eos[i]
-				if eos[i]>p_off[0]:
-					page += 1
-					del p_off[0]
-		# ugly: last iter
-		text_fragment = f'PAGE({page}):\n'+text[pos:eos[i]]
-		out += [text_fragment]
-		#
-		out = [x for x in out if x]
-		return out
-	else:
+	if not size or len(text) <= size:
 		return [text]
+	out = []
+	pos = 0
+	page = 1
+	p_off = page_offset.copy()[1:]
+	eos = find_eos(text)
+	if len(text) not in eos:
+		eos += [len(text)]
+	for i in range(len(eos)):
+		if eos[i]-pos>size:
+			text_fragment = f'PAGE({page}):\n{text[pos:eos[i]]}'
+			out += [text_fragment]
+			pos = eos[i]
+			if pos > p_off[0]:
+				page += 1
+				del p_off[0]
+		# ugly: last iter
+	text_fragment = f'PAGE({page}):\n{text[pos:eos[i]]}'
+	out += [text_fragment]
+	return [x for x in out if x]
 
 def find_eos(text):
 	"return list of all end-of-sentence offsets"
@@ -102,20 +99,17 @@ def fix_text_problems(text, pg=None):
 def query(text, index, task=None, temperature=0.0, max_frags=1, hyde=False, hyde_prompt=None, limit=None):
 	"get dictionary with the answer for the given question (text)."
 	out = {}
-	
+
 	if hyde:
 		out['hyde'] = hypotetical_answer(text, index, hyde_prompt=hyde_prompt, temperature=temperature)
-	
+
 	# RANK FRAGMENTS
-	if hyde:
-		resp = ai.embedding(out['hyde']['text'])
-	else:
-		resp = ai.embedding(text)
+	resp = ai.embedding(out['hyde']['text']) if hyde else ai.embedding(text)
 	v = resp['vector']
 	id_list, dist_list, text_list = query_by_vector(v, index, limit=limit)
-	
+
 	# BUILD PROMPT
-	
+
 	# select fragments
 	N_BEFORE = 1 # TODO: param
 	N_AFTER =  1 # TODO: param
@@ -124,9 +118,9 @@ def query(text, index, task=None, temperature=0.0, max_frags=1, hyde=False, hyde
 		for x in range(id-N_BEFORE, id+1+N_AFTER):
 			if x not in selected and x>=0 and x<index['size']:
 				selected[x] = rank
-	selected2 = [(id,rank) for id,rank in selected.items()]
+	selected2 = list(selected.items())
 	selected2.sort(key=lambda x:(x[1],x[0]))
-	
+
 	# build context
 	SEPARATOR = '\n---\n'
 	context = ''
@@ -149,12 +143,12 @@ def query(text, index, task=None, temperature=0.0, max_frags=1, hyde=False, hyde
 		Question: {text}
 		
 		Answer:""" # TODO: move to prompts.py
-	
+
 	# GET ANSWER
 	resp2 = ai.complete(prompt, temperature=temperature)
 	answer = resp2['text']
 	usage = resp2['usage']
-	
+
 	# OUTPUT
 	out['id_list'] = id_list
 	out['dist_list'] = dist_list
@@ -174,8 +168,7 @@ def hypotetical_answer(text, index, hyde_prompt=None, temperature=0.0):
 	{hyde_prompt}
 	Question: "{text}"
 	Document:""" # TODO: move to prompts.py
-	resp = ai.complete(prompt, temperature=temperature)
-	return resp
+	return ai.complete(prompt, temperature=temperature)
 
 
 if __name__=="__main__":
